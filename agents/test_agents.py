@@ -1,74 +1,152 @@
-import os
-import sys
-import asyncio
-
-# This is needed to run tests from the root directory
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import os, sys
+sys.path.insert(0, os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..')))
 
 from agents.code_review_agent import CodeReviewAgent
 from agents.code_quality_agent import CodeQualityAgent
 from agents.docs_agent import DocsAgent
+from agents.learning_agent import LearningAgent
 from agents.auto_fix_agent import AutoFixAgent
 
-# Sample bad code with multiple issues
-sample_code_diff = """
+sample_code = """
 def very_long_function_with_bad_name(data):
-    # This function is way too long and does too many things.
-    # It also has a hardcoded password.
-    password = "password123" 
+    password = "password123"
     if len(data) > 10:
         if 'special' in data:
-            # Deeply nested condition
             result = data['special'] * 5
-            # No error handling for this risky operation
             dangerous_value = result / 0
             return dangerous_value
-    # ... imagine more lines to make it long
     return None
 """
 
-def print_header(title):
-    """Prints a formatted header."""
-    print("\n" + "="*80)
-    print(f"🚀 {title}")
-    print("="*80)
+def print_divider(title):
+    print("\n" + "="*70)
+    print(f"  {title}")
+    print("="*70)
 
-def print_before_after(original, fixed):
-    """Prints a side-by-side comparison of before and after code."""
-    print("\n--- 🙈 BEFORE ---")
-    print(original)
-    print("\n--- ✨ AFTER ---")
-    print(fixed)
-    print("-" * 80)
+def run_tests():
+    print("╔══════════════════════════════════════════════════════════╗")
+    print("║       REPOGUARD AI - COMPLETE ANALYSIS REPORT          ║")
+    print("╚══════════════════════════════════════════════════════════╝")
+    print(f"\n📋 ORIGINAL CODE:\n{sample_code}")
 
-async def run_tests():
-    """Initializes and runs all agents on the sample code."""
-    # Ensure you have a .env file with GROQ_API_KEY in the root
+    # Agent 1
+    print_divider("🔍 AGENT 1: CODE REVIEW AGENT")
+    r1 = CodeReviewAgent().review_and_fix(sample_code)
+    issues = r1.get('issues', [])
+    if issues:
+        print("❌ ERRORS DETECTED:")
+        for i, issue in enumerate(issues, 1):
+            print(f"\n  {i}. Line {issue.get('line','?')} | "
+                  f"SEVERITY: {str(issue.get('severity','?')).upper()} | "
+                  f"CONFIDENCE: {issue.get('confidence','?')}%")
+            print(f"     Issue : {issue.get('issue','?')}")
+            print(f"     Impact: {issue.get('impact','?')}")
+            print(f"     Fix   : {issue.get('fix','?')}")
+    else:
+        print("  ⚠️ No issues returned")
+    print(f"\nSCORE: {r1.get('score', 0)}/100")
+    if r1.get('fixed_code'):
+        print(f"\n✅ FIXED CODE:\n{r1['fixed_code']}")
+    if r1.get('changes_made'):
+        print("\nCHANGES MADE:")
+        for c in r1['changes_made']:
+            print(f"  → {c}")
+
+    # Agent 2
+    print_divider("📊 AGENT 2: CODE QUALITY AGENT")
+    r2 = CodeQualityAgent().analyze_and_fix(sample_code)
+    issues2 = r2.get('issues', [])
+    if issues2:
+        print("❌ ISSUES DETECTED:")
+        for i, issue in enumerate(issues2, 1):
+            print(f"\n  {i}. TYPE: {issue.get('type','?')} | "
+                  f"SEVERITY: {str(issue.get('severity','?')).upper()} | "
+                  f"CONFIDENCE: {issue.get('confidence','?')}%")
+            print(f"     Issue : {issue.get('issue','?')}")
+            print(f"     Fix   : {issue.get('fix','?')}")
+    else:
+        print("  ⚠️ No issues returned - may be parsing error")
+    print(f"\nSCORE: {r2.get('score', 0)}/100")
+
+    # Agent 3
+    print_divider("📝 AGENT 3: DOCUMENTATION AGENT")
+    r3 = DocsAgent().check_and_fix(sample_code)
+    issues3 = r3.get('issues', [])
+    if issues3:
+        print("❌ DOCUMENTATION ISSUES:")
+        for i, issue in enumerate(issues3, 1):
+            print(f"\n  {i}. FUNCTION: {issue.get('function','?')} | "
+                  f"CONFIDENCE: {issue.get('confidence','?')}%")
+            print(f"     Issue : {issue.get('issue','?')}")
+            print(f"     Fix   : {issue.get('fix','?')}")
+    else:
+        print("  ⚠️ No issues returned")
+    print(f"\nSCORE: {r3.get('score', 0)}/100")
+
+    # Agent 4
+    print_divider("🧠 AGENT 4: LEARNING AGENT")
+    r4 = LearningAgent().learn(sample_code)
+    patterns = r4.get('patterns_found', [])
+    if patterns:
+        print("PATTERNS DETECTED:")
+        for p in patterns:
+            print(f"\n  Pattern  : {p.get('pattern','?')}")
+            print(f"  Severity : {p.get('severity','?').upper()}")
+            print(f"  Confidence: {p.get('confidence','?')}%")
+            print(f"  Description: {p.get('description','?')}")
+            print(f"  Fix      : {p.get('how_to_fix','?')}")
+            print(f"  Example  : {p.get('example_fix','?')}")
+            print(f"  Risk     : {p.get('risk_level','?')}")
+    else:
+        print("  ⚠️ No patterns returned")
+    print(f"\nSCORE: {r4.get('score', 0)}/100")
+
+    # Auto Fix Agent
+    print_divider("🤖 AUTO FIX AGENT - MASTER REPORT")
+    auto = AutoFixAgent().full_review_and_fix(sample_code)
     
-    print_header("Running Code Review Agent")
-    review_agent = CodeReviewAgent()
-    review_issues, fixed_code_review = await review_agent.review_and_fix(sample_code_diff)
-    print("Detected Issues:", review_issues)
-    print_before_after(sample_code_diff, fixed_code_review)
+    print("\n┌─────────────────────────────────────────────┐")
+    print("│          AGENT IMPROVEMENT SCORES          │")
+    print("├──────────────────┬────────┬────────┬────────┤")
+    print("│ Agent            │ Before │ After  │ Gain   │")
+    print("├──────────────────┼────────┼────────┼────────┤")
+    for imp in auto.get('agent_improvements', []):
+        gain = imp['gain']
+        gain_str = f"+{gain}" if gain >= 0 else str(gain)
+        print(f"│ {imp['agent']:<16} │ "
+              f"{imp['before']:>3}/100 │ "
+              f"{imp['after']:>3}/100 │ "
+              f"{gain_str:>6} │")
+    print("├──────────────────┼────────┼────────┼────────┤")
+    ob = auto.get('overall_before', 0)
+    oa = auto.get('overall_after', 0)
+    og = auto.get('total_improvement', 0)
+    og_str = f"+{og}" if og >= 0 else str(og)
+    print(f"│ {'OVERALL':<16} │ "
+          f"{ob:>3}/100 │ "
+          f"{oa:>3}/100 │ "
+          f"{og_str:>6} │")
+    print("└──────────────────┴────────┴────────┴────────┘")
 
-    print_header("Running Code Quality Agent")
-    quality_agent = CodeQualityAgent()
-    quality_issues, fixed_code_quality = await quality_agent.analyze_and_fix(sample_code_diff)
-    print("Detected Issues:", quality_issues)
-    print_before_after(sample_code_diff, fixed_code_quality)
+    print(f"""
+╔══════════════════════════════════════════════════╗
+║           REPOGUARD AI FINAL REPORT             ║
+╠══════════════════════════════════════════════════╣
+║  BEFORE GRADE : {auto.get('grade_before','F')} ({auto.get('overall_before',0)}/100)
+║  AFTER GRADE  : {auto.get('grade_after','F')} ({auto.get('overall_after',0)}/100)
+║  IMPROVEMENT  : +{auto.get('total_improvement',0)} points 🚀
+║  ISSUES FIXED : {auto.get('issues_fixed',0)}
+╚══════════════════════════════════════════════════╝""")
 
-    print_header("Running Docs Agent")
-    docs_agent = DocsAgent()
-    docs_issues, fixed_code_docs = await docs_agent.check_and_fix(sample_code_diff)
-    print("Detected Issues:", docs_issues)
-    print_before_after(sample_code_diff, fixed_code_docs)
-
-    print_header("Running Auto Fix Agent (Comprehensive Fix)")
-    auto_fix_agent = AutoFixAgent()
-    final_fixed_code = await auto_fix_agent.full_review_and_fix(sample_code_diff)
-    print_before_after(sample_code_diff, final_fixed_code)
-
+    print(f"\n--- 🙈 ORIGINAL CODE ---\n{auto.get('original_code','')}")
+    print(f"\n--- ✨ FIXED CODE ---\n{auto.get('fixed_code','')}")
+    
+    if auto.get('changes_made'):
+        print("\nCHANGES MADE:")
+        for i, change in enumerate(auto['changes_made'], 1):
+            print(f"  {i}. ✅ {change}")
 
 if __name__ == "__main__":
-    asyncio.run(run_tests())
+    run_tests()
 

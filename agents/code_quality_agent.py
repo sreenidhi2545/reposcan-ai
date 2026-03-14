@@ -1,35 +1,50 @@
 from agents.base_agent import BaseAgent
-import re
-import json
 
 class CodeQualityAgent(BaseAgent):
-    async def analyze(self, code_diff: str) -> dict:
-        prompt = """You are a code quality expert. Analyze this code diff carefully.
-Check for:
-- Cyclomatic complexity
-- Code smells
-- Naming conventions
-- Duplicate code blocks
-- Maintainability
-Return ONLY this JSON structure:
+    def analyze(self, code_diff: str) -> dict:
+        prompt = """You are a code quality expert.
+Analyze this code for quality issues.
+Return ONLY valid raw JSON (no markdown):
 {
-  "issues": [{"type": str, "severity": "low/medium/high", "issue": str, "fix": str}],
-  "score": int between 0-100,
-  "summary": str
-}"""
-        result = await super().analyze(code_diff, prompt)
+  "issues": [
+    {
+      "type": "Code Smell",
+      "severity": "high",
+      "confidence": 90,
+      "issue": "description",
+      "impact": "what breaks",
+      "fix": "how to fix"
+    }
+  ],
+  "score": 20,
+  "summary": "one line summary"
+}
+Check for: cyclomatic complexity, code smells,
+naming conventions, duplicate code, 
+maintainability, function length."""
+        result = super().analyze(code_diff, prompt)
         if "raw" in result:
-            json_match = re.search(r'```json\n(.*?)\n```', result["raw"], re.DOTALL)
-            if json_match:
+            import re, json
+            match = re.search(
+                r'\{.*\}', result["raw"], re.DOTALL)
+            if match:
                 try:
-                    result = json.loads(json_match.group(1))
-                except json.JSONDecodeError:
-                    # If parsing fails, return the raw content to avoid crashing
+                    result = json.loads(match.group())
+                except:
                     pass
         return result
 
-    async def analyze_and_fix(self, code_diff: str) -> tuple[dict, str]:
-        analysis_result = await self.analyze(code_diff)
-        issues = analysis_result.get("issues", [])
-        fixed_code = await self.fix(code_diff, issues)
-        return analysis_result, fixed_code
+    def analyze_and_fix(self, code_diff: str) -> dict:
+        analysis = self.analyze(code_diff)
+        issues = analysis.get("issues", [])
+        fixed_code = self.fix(code_diff, issues)
+        return {
+            "issues": issues,
+            "score": analysis.get("score", 0),
+            "summary": analysis.get("summary", ""),
+            "fixed_code": fixed_code,
+            "changes_made": [
+                f"Fixed: {i.get('issue','')}" 
+                for i in issues
+            ]
+        }
