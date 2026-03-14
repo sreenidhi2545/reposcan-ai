@@ -50,6 +50,54 @@ class BaseAgent:
         except Exception as e:
             return {"error": str(e)}
 
+    def fix(self, code: str, issues: list) -> dict:
+        """
+        Fixes the given code based on the provided issues.
+        """
+        prompt = """You are an expert software engineer. You will receive code and 
+a list of issues found in it. Fix ALL the issues and return 
+ONLY raw JSON with these fields:
+{
+    'fixed_code': str (the complete corrected code),
+    'changes_made': [{'line': int, 'change': str}],
+    'explanation': str
+}
+Make sure the fixed code is complete, working Python code."""
+        
+        issues_str = json.dumps(issues, indent=2)
+        content = f"Original Code:\n```python\n{code}\n```\n\nIssues:\n{issues_str}"
+
+        try:
+            chat_completion = self.client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": prompt,
+                    },
+                    {
+                        "role": "user",
+                        "content": content,
+                    },
+                ],
+                model="llama-3.3-70b-versatile",
+                temperature=0.1,
+            )
+            response_text = chat_completion.choices[0].message.content
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError:
+                 # Handle markdown in response
+                if "```json" in response_text:
+                    match = re.search(r"```json\n(.*?)\n```", response_text, re.DOTALL)
+                    if match:
+                        try:
+                            return json.loads(match.group(1))
+                        except json.JSONDecodeError:
+                            return {"raw": response_text}
+                return {"raw": response_text}
+        except Exception as e:
+            return {"error": str(e)}
+
 if __name__ == '__main__':
     # Example usage:
     # Make sure to have a .env file with GROQ_API_KEY="YOUR_API_KEY"
