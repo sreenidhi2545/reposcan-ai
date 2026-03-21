@@ -1,6 +1,34 @@
 from agents.base_agent import BaseAgent
+import json
+from jsonschema import validate, ValidationError
 
 class CodeQualityAgent(BaseAgent):
+    def __init__(self):
+        self.schema = {
+            "type": "object",
+            "properties": {
+                "issues": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "file": {"type": "string"},
+                            "type": {"type": "string"},
+                            "severity": {"type": "string"},
+                            "confidence": {"type": "integer"},
+                            "issue": {"type": "string"},
+                            "impact": {"type": "string"},
+                            "fix": {"type": "string"}
+                        },
+                        "required": ["file", "type", "severity", "confidence", "issue", "impact", "fix"]
+                    }
+                },
+                "score": {"type": "integer"},
+                "summary": {"type": "string"}
+            },
+            "required": ["issues", "score", "summary"]
+        }
+
     def analyze(self, code_diff: str) -> dict:
         prompt = """You are a code quality expert.
 Analyze this code for quality issues.
@@ -26,15 +54,22 @@ naming conventions, duplicate code,
 maintainability, function length."""
         result = super().analyze(code_diff, prompt)
         if "raw" in result:
-            import re, json
+            import re
             match = re.search(
                 r'\{.*\}', result["raw"], re.DOTALL)
             if match:
                 try:
                     result = json.loads(match.group())
-                except:
+                    self.validate_json(result)
+                except (json.JSONDecodeError, ValidationError):
                     pass
         return result
+
+    def validate_json(self, json_data):
+        try:
+            validate(instance=json_data, schema=self.schema)
+        except ValidationError as e:
+            raise ValidationError(f"Invalid JSON: {e}")
 
     def analyze_and_fix(self, code_diff: str) -> dict:
         analysis = self.analyze(code_diff)
