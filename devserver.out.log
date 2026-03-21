@@ -1,0 +1,20 @@
+
+> repo-analyzer-dashboard@0.0.0 dev
+> concurrently -k -n API,WEB -c green,cyan "python -m uvicorn main:app --host 127.0.0.1 --port 8000" "vite"
+
+[WEB] [2m9:27:16 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
+[WEB] Port 5173 is in use, trying another one...
+[WEB] 
+[WEB]   [32m[1mVITE[22m v8.0.0[39m  [2mready in [0m[1m861[22m[2m[0m ms[22m
+[WEB] 
+[WEB]   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5174[22m/[39m
+[WEB] [2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[API] INFO:     Started server process [12276]
+[API] INFO:     Waiting for application startup.
+[API] INFO:     Application startup complete.
+[API] ERROR:    [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000): only one usage of each socket address (protocol/network address/port) is normally permitted
+[API] INFO:     Waiting for application shutdown.
+[API] INFO:     Application shutdown complete.
+[API] python -m uvicorn main:app --host 127.0.0.1 --port 8000 exited with code 1
+--> Sending SIGTERM to other processes..
+[WEB] vite exited with code 1

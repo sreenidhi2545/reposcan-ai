@@ -4,10 +4,12 @@ class CodeReviewAgent(BaseAgent):
     def review(self, code_diff: str) -> dict:
         prompt = """You are a senior code reviewer.
 Analyze this code diff carefully.
+IMPORTANT: For each issue, the 'file' field must contain the exact file path as it appears after 'FILE:' in the code content provided. Never use 'unknown' as the file value.
 Return ONLY valid raw JSON (no markdown):
 {
   "issues": [
     {
+      "file": "actual/path/to/file.py",
       "line": 1,
       "severity": "high",
       "confidence": 95,

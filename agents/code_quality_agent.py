@@ -4,10 +4,12 @@ class CodeQualityAgent(BaseAgent):
     def analyze(self, code_diff: str) -> dict:
         prompt = """You are a code quality expert.
 Analyze this code for quality issues.
+IMPORTANT: For each issue, the 'file' field must contain the exact file path as it appears after 'FILE:' in the code content provided. Never use 'unknown' as the file value.
 Return ONLY valid raw JSON (no markdown):
 {
   "issues": [
     {
+      "file": "actual/path/to/file.py",
       "type": "Code Smell",
       "severity": "high",
       "confidence": 90,

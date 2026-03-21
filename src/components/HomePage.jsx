@@ -5,7 +5,7 @@ import LoadingAnimation from './LoadingAnimation'
 import ParticleBackground from './ParticleBackground'
 import axios from 'axios'
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
+const ANALYZE_ENDPOINT = import.meta.env.VITE_ANALYZE_ENDPOINT || '/analyze'
 
 const SAMPLE_REPOS = [
   'https://github.com/facebook/react',
@@ -33,7 +33,7 @@ const heroItem = {
   },
 }
 
-export default function HomePage() {
+export default function HomePage({ onAnalysisComplete }) {
   const [repoUrl, setRepoUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -54,18 +54,28 @@ export default function HomePage() {
     setLoading(true)
 
     try {
-      // POST to backend; if backend not ready, use mock data
-      let data
-      try {
-        const res = await axios.post(`${BACKEND_URL}/analyze`, { repo_url: repoUrl }, { timeout: 120000 })
-        data = res.data
-      } catch {
-        // Fallback to mock data for demo
-        data = generateMockData(repoUrl)
+      const normalizedRepoUrl = repoUrl.trim()
+      const res = await axios.post(
+        ANALYZE_ENDPOINT,
+        { repo_url: normalizedRepoUrl },
+        { timeout: 120000 },
+      )
+      const data = res.data
+      if (onAnalysisComplete) {
+        onAnalysisComplete(data, normalizedRepoUrl)
       }
-      navigate('/dashboard', { state: { data, repoUrl } })
+      navigate('/dashboard', { state: { data, repoUrl: normalizedRepoUrl } })
     } catch (err) {
-      setError('Analysis failed. Please try again.')
+      const backendMessage = err?.response?.data?.detail
+      const isNetworkError = err?.code === 'ERR_NETWORK' || !err?.response
+      const isTimeout = err?.code === 'ECONNABORTED'
+      if (isTimeout) {
+        setError('Analysis timed out after 120 seconds. Please try again.')
+      } else if (isNetworkError) {
+        setError('Backend API is not reachable. Run `npm run dev` from project root and try again.')
+      } else {
+        setError(backendMessage || 'Analysis failed. Please try again.')
+      }
       setLoading(false)
     }
   }

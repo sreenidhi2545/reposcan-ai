@@ -308,29 +308,23 @@ function normalizeIssues(doc1 = {}, doc2 = {}) {
 }
 
 function resolveAgentScores(doc1 = {}, doc2 = {}) {
-  const improvements = Array.isArray(doc2.agent_improvements) ? doc2.agent_improvements : []
-
-  const fromImprovement = (id, aliases = []) => {
-    const found = improvements.find((entry) => {
-      const name = `${entry.agent || entry.name || ''}`.toLowerCase()
-      return [id, ...aliases].some((term) => name.includes(term))
-    })
-    return found?.score
-  }
+  const learningInsights = Array.isArray(doc1.learning_insights) ? doc1.learning_insights : []
+  const learningScore = learningInsights.length > 0 ? 70 : 0
 
   return {
-    security: clampScore(fromImprovement('security') ?? doc2.security?.score ?? doc1.security?.score),
-    'code-review': clampScore(fromImprovement('code', ['review']) ?? doc2.code_review?.score ?? doc1.code_smells?.score),
-    dependency: clampScore(fromImprovement('dependency', ['package']) ?? doc2.dependencies?.score ?? doc1.dependencies?.score),
-    documentation: clampScore(fromImprovement('doc') ?? doc2.docs?.score ?? doc1.documentation?.score),
-    quality: clampScore(fromImprovement('quality') ?? doc2.code_quality?.score ?? doc1.code_smells?.score),
-    learning: clampScore(fromImprovement('learning') ?? doc2.learning?.score ?? Math.min((doc1.learning_insights?.length || 0) * 20, 100)),
-    contribution: clampScore(fromImprovement('contribution', ['reputation']) ?? doc2.contribution?.score ?? doc1.developer_reputation?.score),
+    security: clampScore(doc1.security?.score ?? doc2.security?.score),
+    'code-review': clampScore(doc1.code_smells?.score ?? doc2.code_review?.score),
+    dependency: clampScore(doc1.dependencies?.score ?? doc2.dependencies?.score),
+    documentation: clampScore(doc1.documentation?.score ?? doc2.docs?.score ?? doc2.documentation?.score),
+    quality: clampScore(doc1.code_smells?.score ?? doc2.code_quality?.score),
+    learning: clampScore(learningScore),
+    contribution: clampScore(doc1.developer_reputation?.score ?? doc2.contribution?.score),
   }
 }
 
-function normalizeSources(state, repoUrl) {
+function normalizeSources(state, repoUrl, initialData) {
   const candidates = [
+    initialData,
     state?.data,
     state?.doc1,
     state?.analysis,
@@ -447,15 +441,69 @@ function shorten(text, max = 115) {
   return `${value.slice(0, max - 1).trimEnd()}...`
 }
 
-export default function Dashboard() {
+function buildFixIssuePayload(analysis = {}) {
+  const fallbackFiles = Array.isArray(analysis.analyzed_file_paths) ? analysis.analyzed_file_paths : []
+  const fallbackFile = fallbackFiles[0] || ''
+
+  const fromSecurity = (analysis.security?.issues || []).map((item) => ({
+    category: 'security',
+    title: item.title || 'Security issue',
+    description: item.suggested_fix || item.owasp || '',
+    severity: item.severity || 'MEDIUM',
+    file: item.file || fallbackFile,
+    fallback_file: fallbackFile,
+  }))
+
+  const fromCodeSmells = (analysis.code_smells?.issues || []).map((item) => ({
+    category: 'code-smell',
+    title: item.type || 'Code smell',
+    description: item.description || '',
+    severity: item.severity || 'MEDIUM',
+    file: item.file || fallbackFile,
+    fallback_file: fallbackFile,
+  }))
+
+  const fromBugs = (analysis.code_smells?.bugs_detected || []).map((item) => ({
+    category: 'bug-risk',
+    title: item.type || 'Bug risk',
+    description: item.description || '',
+    severity: item.severity || 'MEDIUM',
+    file: item.file || fallbackFile,
+    fallback_file: fallbackFile,
+  }))
+
+  const fromDocs = (analysis.documentation?.issues || []).map((item) => ({
+    category: 'documentation',
+    title: item.issue || item.type || 'Documentation issue',
+    description: item.description || '',
+    severity: item.severity || 'LOW',
+    file: item.function || item.file || fallbackFile,
+    fallback_file: fallbackFile,
+  }))
+
+  return [...fromSecurity, ...fromCodeSmells, ...fromBugs, ...fromDocs].slice(0, 3)
+}
+
+export default function Dashboard({ initialData = null, initialRepoUrl = '' }) {
   const { state } = useLocation()
   const navigate = useNavigate()
-  const repoUrl = state?.repoUrl || 'https://github.com/facebook/react'
+  const repoUrl = initialRepoUrl || state?.repoUrl || 'https://github.com/facebook/react'
   const [apiData, setApiData] = useState(null)
   const [apiError, setApiError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [retryCount, setRetryCount] = useState(0)
   const [expandedAgent, setExpandedAgent] = useState(null)
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [chatInput, setChatInput] = useState('')
+  const [chatHistory, setChatHistory] = useState([
+    { role: 'assistant', text: 'Ask anything about this repository analysis and I will answer from the report.' },
+  ])
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatError, setChatError] = useState('')
+  const [githubToken, setGithubToken] = useState('')
+  const [prLoading, setPrLoading] = useState(false)
+  const [prError, setPrError] = useState('')
+  const [prUrl, setPrUrl] = useState('')
   const { message: toastMessage, show: showToast } = useToastMessage()
 
   useEffect(() => {
@@ -465,7 +513,7 @@ export default function Dashboard() {
       setIsLoading(true)
       setApiError('')
 
-      const local = normalizeSources(state, repoUrl)
+      const local = normalizeSources(state, repoUrl, initialData)
       let doc1 = local.doc1
       let doc2 = local.doc2
       const failures = []
@@ -521,7 +569,7 @@ export default function Dashboard() {
     return () => {
       alive = false
     }
-  }, [state, repoUrl, retryCount])
+  }, [state, repoUrl, retryCount, initialData])
 
   const data = useMemo(() => apiData?.doc1 || getFallbackData(repoUrl), [apiData, repoUrl])
   const doc2 = useMemo(() => apiData?.doc2 || {}, [apiData])
@@ -723,6 +771,87 @@ export default function Dashboard() {
     { metric: 'Dependencies', value: clampScore(data.dependencies?.score ?? scoreMap.dependency) },
     { metric: 'Contribution', value: clampScore(data.developer_reputation?.score ?? scoreMap.contribution) },
   ]
+  const topFixIssues = useMemo(() => buildFixIssuePayload(data), [data])
+
+  const handleSendChat = async () => {
+    const message = chatInput.trim()
+    if (!message || chatLoading) return
+
+    setChatError('')
+    setChatInput('')
+    setChatHistory((prev) => [...prev, { role: 'user', text: message }])
+    setChatLoading(true)
+
+    try {
+      const res = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo_url: repoUrl,
+          message,
+          analysis: data,
+        }),
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        throw new Error(payload?.detail || 'Chat request failed')
+      }
+      const payload = await res.json()
+      const reply = `${payload?.reply || ''}`.trim() || 'No response generated.'
+      setChatHistory((prev) => [...prev, { role: 'assistant', text: reply }])
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : 'Failed to get AI reply.'
+      setChatError(messageText)
+      setChatHistory((prev) => [...prev, { role: 'assistant', text: `Error: ${messageText}` }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  const handleGenerateFixPr = async () => {
+    if (prLoading) return
+    if (!githubToken.trim()) {
+      setPrError('GitHub token is required to generate a PR.')
+      return
+    }
+    if (!topFixIssues.length) {
+      setPrError('No issues available to auto-fix.')
+      return
+    }
+
+    setPrError('')
+    setPrUrl('')
+    setPrLoading(true)
+
+    try {
+      const res = await fetch('http://localhost:8000/generate-fix-pr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo_url: repoUrl,
+          github_token: githubToken.trim(),
+          issues: topFixIssues,
+        }),
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        throw new Error(payload?.detail || 'Failed to generate PR')
+      }
+      const payload = await res.json()
+      if (!payload?.pr_url) throw new Error('PR URL missing in response.')
+      setPrUrl(payload.pr_url)
+      setChatHistory((prev) => [
+        ...prev,
+        { role: 'assistant', text: `Fix PR created successfully: ${payload.pr_url}` },
+      ])
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : 'PR generation failed.'
+      setPrError(messageText)
+      setChatHistory((prev) => [...prev, { role: 'assistant', text: `PR generation failed: ${messageText}` }])
+    } finally {
+      setPrLoading(false)
+    }
+  }
 
   const renderExpandedPanel = (agent) => {
     if (agent.id === 'security') {
@@ -1143,6 +1272,75 @@ export default function Dashboard() {
         )}
 
         {toastMessage && <div className="export-toast">{toastMessage}</div>}
+
+        <button
+          type="button"
+          className={`repo-chat-fab ${isChatOpen ? 'open' : ''}`}
+          onClick={() => setIsChatOpen((prev) => !prev)}
+          title="Chat with RepoScan AI"
+        >
+          {isChatOpen ? '×' : 'Chat'}
+        </button>
+
+        <aside className={`repo-chat-panel ${isChatOpen ? 'open' : ''}`} aria-hidden={!isChatOpen}>
+          <div className="repo-chat-header">
+            <h3>Chat with RepoScan AI</h3>
+            <button type="button" onClick={() => setIsChatOpen(false)}>Close</button>
+          </div>
+
+          <div className="repo-chat-messages">
+            {chatHistory.map((item, idx) => (
+              <div key={`chat-${idx}`} className={`repo-chat-msg ${item.role}`}>
+                <span>{item.text}</span>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="repo-chat-msg assistant loading">
+                <span className="repo-chat-spinner" />
+                <span>Thinking...</span>
+              </div>
+            )}
+          </div>
+
+          {chatError && <p className="repo-chat-error">{chatError}</p>}
+
+          <form
+            className="repo-chat-input-wrap"
+            onSubmit={(e) => {
+              e.preventDefault()
+              handleSendChat()
+            }}
+          >
+            <div className="repo-chat-input-row">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask about findings, risks, or fixes..."
+              />
+              <button type="submit" disabled={chatLoading}>{chatLoading ? '...' : 'Send'}</button>
+            </div>
+          </form>
+
+          <div className="repo-chat-pr-wrap">
+            <input
+              type="password"
+              value={githubToken}
+              onChange={(e) => setGithubToken(e.target.value)}
+              placeholder="GitHub token for PR generation"
+            />
+            <button type="button" onClick={handleGenerateFixPr} disabled={prLoading}>
+              {prLoading ? 'Generating...' : 'Generate Fix PR'}
+            </button>
+            {prError && <p className="repo-chat-error">{prError}</p>}
+            {prUrl && (
+              <p className="repo-chat-pr-link">
+                PR created:{' '}
+                <a href={prUrl} target="_blank" rel="noreferrer">{prUrl}</a>
+              </p>
+            )}
+          </div>
+        </aside>
 
         {/* Footer */}
         <motion.footer initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.2 }}

@@ -29,18 +29,74 @@ class SecurityAgent(BaseAgent):
             normalized = normalized.replace("'", '"')
             return json.loads(normalized)
 
+    def _extract_partial_response(self, response_text: str, default_response: dict) -> dict:
+        partial = dict(default_response)
+        score_match = re.search(r'"?security_score"?\s*:\s*(\d+)', response_text, re.IGNORECASE)
+        risk_match = re.search(r'"?risk_level"?\s*:\s*["\']?([a-zA-Z_]+)["\']?', response_text, re.IGNORECASE)
+        summary_match = re.search(r'"?summary"?\s*:\s*["\']([^"\']+)["\']', response_text, re.IGNORECASE)
+        if score_match:
+            partial["security_score"] = int(score_match.group(1))
+        if risk_match:
+            partial["risk_level"] = risk_match.group(1).lower()
+        if summary_match:
+            partial["summary"] = summary_match.group(1)
+        return partial
+
     def _run_security_prompt(self, prompt: str, content: str, default_response: dict) -> dict:
         try:
-            chat_completion = self.client.chat.completions.create(
+            chat_completion = self._create_chat_completion(
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": content},
                 ],
-                model="llama-3.3-70b-versatile",
                 temperature=0.1,
             )
             response_text = chat_completion.choices[0].message.content or ""
-            return self._parse_json_response(response_text)
+            try:
+                return self._parse_json_response(response_text)
+            except Exception:
+                fallback_prompt = """You are an application security expert.
+Analyze this code and return ONLY strict JSON.
+IMPORTANT: For each issue, the 'file' field must contain the exact file path as it appears after 'FILE:' in the code content provided. Never use 'unknown' as the file value.
+{
+  "vulnerabilities": [
+    {
+      "file": "actual/path/to/file.py",
+      "category": "Hardcoded Secrets",
+      "line": 1,
+      "severity": "low",
+      "confidence": 90,
+      "owasp": "A02",
+      "issue": "description",
+      "impact": "impact",
+      "fix": "fix recommendation"
+    }
+  ],
+  "security_score": 70,
+  "risk_level": "medium",
+  "critical_count": 0,
+  "high_count": 0,
+  "medium_count": 0,
+  "low_count": 0,
+  "owasp_violations": [],
+  "requires_immediate_action": false,
+  "block_deployment": false,
+  "summary": "one line summary"
+}
+No markdown, no extra text."""
+                fallback = self.analyze(content, fallback_prompt)
+                if isinstance(fallback, dict) and not fallback.get("error"):
+                    merged = dict(default_response)
+                    merged.update(fallback)
+                    if not merged.get("security_score") and merged.get("score"):
+                        merged["security_score"] = merged.get("score")
+                    return merged
+                partial = self._extract_partial_response(response_text, default_response)
+                if partial.get("security_score", 0) > 0:
+                    return partial
+                failed_response = dict(default_response)
+                failed_response["error"] = "Could not parse security agent response as JSON."
+                return failed_response
         except Exception as exc:
             failed_response = dict(default_response)
             failed_response["error"] = str(exc)
@@ -58,9 +114,10 @@ CATEGORY 5 - Broken Access Control: missing authorization checks, path traversal
 CATEGORY 6 - Security Misconfiguration: debug=True, CORS allowing *, missing security headers, default credentials
 CATEGORY 7 - Cryptographic Failures: MD5/SHA1 for passwords, random for tokens, hardcoded keys, ECB mode, verify=False, weak key sizes
 
+IMPORTANT: For each issue, the 'file' field must contain the exact file path as it appears after 'FILE:' in the code content provided. Never use 'unknown' as the file value.
 Return ONLY raw JSON (no markdown, no backticks):
 {
-  'vulnerabilities': [{'category': str, 'line': int, 'severity': 'critical/high/medium/low',
+  'vulnerabilities': [{'file': str, 'category': str, 'line': int, 'severity': 'critical/high/medium/low',
     'confidence': int, 'owasp': str, 'cve': str or null, 'issue': str, 'impact': str,
     'fix': str, 'code_example': str, 'requires_immediate_fix': bool}],
   'security_score': int, 'risk_level': str, 'critical_count': int,
@@ -84,9 +141,11 @@ Return ONLY raw JSON (no markdown, no backticks):
         return self._run_security_prompt(prompt, code, default_response)
 
     def check_owasp(self, code: str) -> dict:
-        prompt = """Check all OWASP Top 10 2021 (A01-A10). Return ONLY raw JSON:
+        prompt = """Check all OWASP Top 10 2021 (A01-A10).
+IMPORTANT: For each issue, the 'file' field must contain the exact file path as it appears after 'FILE:' in the code content provided. Never use 'unknown' as the file value.
+Return ONLY raw JSON:
 {
-  'owasp_results': [{'id': str, 'name': str,
+  'owasp_results': [{'file': str, 'id': str, 'name': str,
     'status': 'VIOLATED/CLEAR/NEEDS_REVIEW', 'severity': str, 'details': str}],
   'total_violations': int, 'owasp_score': int,
   'certification': 'PASS/FAIL/NEEDS_REVIEW', 'summary': str

@@ -24,7 +24,7 @@ def _get_headers() -> Dict[str, str]:
         "User-Agent": "RepoGuard-AI",
     }
     if token:
-        headers["Authorization"] = f"token {token}"
+        headers["Authorization"] = f"Bearer {token}"
     return headers
 
 
